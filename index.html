@@ -1,0 +1,623 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>霓虹俄罗斯方块：动态矩阵</title>
+    <!-- 
+      本应用已整合为单文件结构。
+      所有游戏逻辑、样式及交互均在此 HTML 中实现。
+    -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "#e92b96",
+                        "background-dark": "#050608",
+                        "shell-gray": "#1e2229"
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #050608;
+            color: white;
+            overflow: hidden;
+            user-select: none;
+            -webkit-touch-callout: none;
+            touch-action: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        /* 掌机外壳：增强立体感 */
+        .handheld-shell {
+            background: linear-gradient(145deg, #2a2e38 0%, #15181d 100%);
+            border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: 
+                0 30px 60px rgba(0,0,0,0.8), 
+                inset 0 2px 2px rgba(255,255,255,0.1),
+                inset 0 -2px 5px rgba(0,0,0,0.5);
+            border-radius: 3.5rem;
+            position: relative;
+            padding: 2.5rem 1.5rem; /* 初始内边距 */
+            transition: padding 0.3s ease;
+        }
+
+        /* 竖屏模式高度优化：通过减少边距和间隙缩小约 90px */
+        @media (orientation: portrait) {
+            .handheld-shell {
+                padding: 1.25rem 1.25rem; /* 减少 40px (上下各20px) */
+            }
+            .screen-bezel {
+                margin-bottom: 0.5rem !important; /* mb-6 (24px) -> mb-2 (8px), 减少 16px */
+            }
+            .bottom-decoration {
+                margin-top: 0.5rem !important; /* mt-8 (32px) -> mt-2 (8px), 减少 24px */
+            }
+            .control-area {
+                gap: 0.5rem !important; /* 减少间隙 */
+            }
+            /* 合计减少约 40+16+24+10 = 90px */
+        }
+
+        /* 屏幕凹陷效果 */
+        .screen-bezel {
+            background: #0a0c10;
+            padding: 8px;
+            border-radius: 1.2rem;
+            box-shadow: 
+                inset 0 4px 10px rgba(0,0,0,0.8),
+                0 1px 1px rgba(255,255,255,0.05);
+            border: 1px solid #333;
+        }
+
+        .canvas-grid {
+            background-image: 
+                linear-gradient(to right, rgba(233, 43, 150, 0.03) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(233, 43, 150, 0.03) 1px, transparent 1px);
+            background-size: 30px 30px;
+        }
+
+        /* 3D 物理按键设计 */
+        .physical-button {
+            background: linear-gradient(180deg, #323842 0%, #1a1d24 100%);
+            border: 1px solid #444;
+            border-bottom: 4px solid #000;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.4);
+            transition: all 0.05s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #aaa;
+        }
+
+        .physical-button:active {
+            transform: translateY(2px);
+            border-bottom-width: 1px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.6);
+            filter: brightness(1.2);
+            color: #fff;
+        }
+
+        /* 十字键中心凹陷 */
+        .dpad-center {
+            width: 12px;
+            height: 12px;
+            background: #111;
+            border-radius: 50%;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.8);
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        /* 下坠大按钮 */
+        .action-button-drop {
+            background: linear-gradient(180deg, #e92b96 0%, #9d1b64 100%);
+            border: 1px solid #f06292;
+            border-bottom: 5px solid #62113e;
+            box-shadow: 0 4px 15px rgba(233, 43, 150, 0.3);
+            color: white;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .action-button-drop:active {
+            transform: translateY(3px);
+            border-bottom-width: 1px;
+            box-shadow: 0 1px 5px rgba(233, 43, 150, 0.5);
+        }
+
+        /* 扫描线动画 */
+        .scanline {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(
+                to bottom,
+                rgba(233, 43, 150, 0) 0%,
+                rgba(233, 43, 150, 0.05) 50%,
+                rgba(233, 43, 150, 0) 100%
+            );
+            background-size: 100% 200%;
+            position: absolute;
+            top: 0; left: 0;
+            animation: scan 6s linear infinite;
+            pointer-events: none;
+            z-index: 5;
+        }
+        @keyframes scan {
+            from { background-position: 0 -100%; }
+            to { background-position: 0 100%; }
+        }
+
+        /* 装饰用的小孔和螺丝 */
+        .screw {
+            width: 6px;
+            height: 6px;
+            background: #333;
+            border-radius: 50%;
+            box-shadow: inset 0 1px 1px #000, 1px 1px 0 rgba(255,255,255,0.05);
+            position: absolute;
+        }
+
+        @media (max-height: 750px) {
+            .handheld-shell { transform: scale(0.9); }
+        }
+    </style>
+</head>
+<body class="font-display">
+
+    <!-- 掌机主体 -->
+    <div class="handheld-shell w-full max-w-[380px] flex flex-col items-center">
+        
+        <!-- 装饰：四角的螺丝 -->
+        <div class="screw top-6 left-6"></div>
+        <div class="screw top-6 right-6"></div>
+        <div class="screw bottom-6 left-6"></div>
+        <div class="screw bottom-6 right-6"></div>
+
+        <!-- 装饰：喇叭孔 -->
+        <div class="absolute left-6 top-1/3 flex flex-col gap-1.5 opacity-30">
+            <div class="w-1.5 h-1.5 bg-black rounded-full shadow-inner"></div>
+            <div class="w-1.5 h-1.5 bg-black rounded-full shadow-inner"></div>
+            <div class="w-1.5 h-1.5 bg-black rounded-full shadow-inner"></div>
+        </div>
+
+        <!-- 屏幕外框 -->
+        <div class="w-full screen-bezel mb-6">
+            <!-- 屏幕顶端状态 -->
+            <div class="flex justify-between items-end px-3 py-1 bg-[#15181d] rounded-t-lg mb-1 border-b border-black">
+                <div class="flex flex-col">
+                    <span class="text-[7px] font-black text-primary/80 tracking-widest">数据报文</span>
+                    <span id="stat-score" class="text-lg font-bold tabular-nums text-white/90 leading-none">000000</span>
+                </div>
+                <div class="flex flex-col items-end">
+                    <span class="text-[7px] font-black text-primary/80 tracking-widest">当前等级</span>
+                    <span id="stat-level" class="text-lg font-bold italic text-white/90 leading-none">01</span>
+                </div>
+            </div>
+
+            <!-- 核心显示区 -->
+            <div class="relative w-full aspect-[1/2] bg-black rounded-md overflow-hidden canvas-grid shadow-inner">
+                <div class="scanline"></div>
+                <canvas id="game-canvas" class="w-full h-full block"></canvas>
+                
+                <!-- 遮罩层：引导/暂停/结束 -->
+                <div id="screen-idle" class="absolute inset-0 bg-black/90 flex flex-col items-center justify-center p-6 text-center z-20 backdrop-blur-sm">
+                    <div class="size-16 rounded-full border border-primary/20 flex items-center justify-center mb-4 animate-pulse">
+                        <span class="material-symbols-outlined text-primary text-4xl">sensors</span>
+                    </div>
+                    <h3 class="text-xs font-black uppercase mb-8 tracking-[0.4em] text-primary">系统就绪</h3>
+                    <button id="btn-engage" class="action-button-drop px-8 py-3 rounded-full text-[10px] active:scale-95 transition-all">同步矩阵</button>
+                </div>
+
+                <div id="screen-gameover" class="hidden absolute inset-0 bg-black/95 flex flex-col items-center justify-center p-6 text-center z-20">
+                    <span class="material-symbols-outlined text-red-500 text-6xl mb-4">cancel</span>
+                    <h3 class="text-sm font-black uppercase mb-1 text-red-500">连接中断</h3>
+                    <p class="text-[9px] text-white/40 mb-8 uppercase tracking-widest">最终积分: <span id="final-score" class="text-white">0</span></p>
+                    <button id="btn-restart" class="action-button-drop px-8 py-3 rounded-full text-[10px]">重启系统</button>
+                </div>
+
+                <div id="screen-paused" class="hidden absolute inset-0 bg-black/50 flex flex-col items-center justify-center z-20 backdrop-blur-[1px]">
+                    <div class="size-14 rounded-full bg-primary/20 flex items-center justify-center border border-primary/50">
+                        <span class="material-symbols-outlined text-primary text-4xl">pause</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 掌机按钮区域 -->
+        <div class="w-full flex justify-between items-center gap-4 px-2 control-area">
+            
+            <!-- 方向键 (D-Pad) -->
+            <div class="relative grid grid-cols-3 gap-0.5 scale-110">
+                <div class="dpad-center"></div>
+                <div class="col-start-2">
+                    <button id="ctrl-up" class="physical-button size-11 rounded-t-lg">
+                        <span class="material-symbols-outlined">expand_less</span>
+                    </button>
+                </div>
+                <div class="col-start-1 row-start-2">
+                    <button id="ctrl-left" class="physical-button size-11 rounded-l-lg">
+                        <span class="material-symbols-outlined">chevron_left</span>
+                    </button>
+                </div>
+                <div class="col-start-2 row-start-2">
+                    <button id="ctrl-down" class="physical-button size-11">
+                        <span class="material-symbols-outlined">expand_more</span>
+                    </button>
+                </div>
+                <div class="col-start-3 row-start-2">
+                    <button id="ctrl-right" class="physical-button size-11 rounded-r-lg">
+                        <span class="material-symbols-outlined">chevron_right</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 操作键 (Action) -->
+            <div class="flex flex-col gap-4 flex-1 items-end">
+                <div class="flex gap-3">
+                    <div class="flex flex-col items-center gap-1">
+                        <span class="text-[6px] font-bold text-white/20 uppercase tracking-tighter">暂停</span>
+                        <button id="btn-play-toggle" class="physical-button size-10 rounded-full">
+                            <span id="play-icon" class="material-symbols-outlined text-sm">play_arrow</span>
+                        </button>
+                    </div>
+                    <div class="flex flex-col items-center gap-1">
+                        <span class="text-[6px] font-bold text-white/20 uppercase tracking-tighter">重置</span>
+                        <button id="btn-refresh" class="physical-button size-10 rounded-full">
+                            <span class="material-symbols-outlined text-sm">refresh</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="w-full flex flex-col gap-1">
+                    <span class="text-[6px] font-bold text-white/30 uppercase text-center tracking-widest">强力下坠</span>
+                    <button id="ctrl-drop" class="action-button-drop w-full py-5 rounded-2xl text-[10px]">
+                        执行程序
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 底部型号装饰 -->
+        <div class="mt-8 flex flex-col items-center gap-1 opacity-20 bottom-decoration">
+            <div class="w-20 h-1 bg-black rounded-full"></div>
+            <div class="text-[7px] font-bold text-white tracking-[0.6em] uppercase">霓虹街机 // 伍型</div>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * 游戏常量定义
+         */
+        const COLS = 10;
+        const ROWS = 20;
+        const SHAPES = {
+            'I': [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
+            'J': [[1,0,0],[1,1,1],[0,0,0]],
+            'L': [[0,0,1],[1,1,1],[0,0,0]],
+            'O': [[1,1],[1,1]],
+            'S': [[0,1,1],[1,1,0],[0,0,0]],
+            'T': [[0,1,0],[1,1,1],[0,0,0]],
+            'Z': [[1,1,0],[0,1,1],[0,0,0]]
+        };
+        const COLORS = {
+            'I': '#00f3ff', 'J': '#3b82f6', 'L': '#f59e0b', 'O': '#fbbf24', 'S': '#10b981', 'T': '#e92b96', 'Z': '#ef4444'
+        };
+
+        /**
+         * 游戏实时状态
+         */
+        let gameState = {
+            board: Array.from({ length: ROWS }, () => Array(COLS).fill(null)), // 游戏盘面
+            activePiece: null, // 当前正在落下的方块
+            nextPiece: null,   // 下一个方块
+            score: 0,          // 当前分数
+            level: 1,          // 当前等级
+            lines: 0,          // 已消除的总行数
+            status: 'IDLE'     // 状态：IDLE (空闲), PLAYING (游戏中), PAUSED (暂停), GAMEOVER (结束)
+        };
+
+        let lastTime = 0;      // 上一帧时间戳
+        let dropCounter = 0;   // 下落计时器
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+
+        /**
+         * 响应式画布调整
+         */
+        function resizeCanvas() {
+            canvas.width = canvas.clientWidth * devicePixelRatio;
+            canvas.height = canvas.clientHeight * devicePixelRatio;
+            ctx.scale(devicePixelRatio, devicePixelRatio);
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        /**
+         * 随机生成新方块
+         */
+        function getRandomPiece() {
+            const keys = Object.keys(SHAPES);
+            const type = keys[Math.floor(Math.random() * keys.length)];
+            return { type, shape: SHAPES[type], color: COLORS[type] };
+        }
+
+        /**
+         * 在顶部生成新方块
+         */
+        function spawnPiece() {
+            gameState.activePiece = {
+                piece: gameState.nextPiece || getRandomPiece(),
+                pos: { x: Math.floor(COLS / 2) - 1, y: 0 }
+            };
+            gameState.nextPiece = getRandomPiece();
+            // 如果刚生成就碰撞，则游戏结束
+            if (checkCollision(gameState.activePiece.piece, gameState.activePiece.pos)) {
+                gameState.status = 'GAMEOVER';
+                updateUI();
+            }
+        }
+
+        /**
+         * 碰撞检测
+         */
+        function checkCollision(piece, pos) {
+            for (let y = 0; y < piece.shape.length; y++) {
+                for (let x = 0; x < piece.shape[y].length; x++) {
+                    if (piece.shape[y][x]) {
+                        const nx = pos.x + x;
+                        const ny = pos.y + y;
+                        // 边界检测及盘面检测
+                        if (nx < 0 || nx >= COLS || ny >= ROWS || (ny >= 0 && gameState.board[ny][nx])) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /**
+         * 方块旋转（矩阵顺时针转置）
+         */
+        function rotate(piece) {
+            const newShape = piece.shape[0].map((_, i) => piece.shape.map(row => row[i]).reverse());
+            return { ...piece, shape: newShape };
+        }
+
+        /**
+         * 移动方块逻辑
+         */
+        function move(dx, dy) {
+            if (gameState.status !== 'PLAYING') return;
+            const newPos = { x: gameState.activePiece.pos.x + dx, y: gameState.activePiece.pos.y + dy };
+            if (!checkCollision(gameState.activePiece.piece, newPos)) {
+                gameState.activePiece.pos = newPos;
+                return true;
+            } else if (dy > 0) {
+                // 如果是向下移动触发碰撞，则锁定方块
+                lockPiece();
+            }
+            return false;
+        }
+
+        /**
+         * 锁定方块到盘面
+         */
+        function lockPiece() {
+            const { piece, pos } = gameState.activePiece;
+            piece.shape.forEach((row, y) => {
+                row.forEach((val, x) => {
+                    if (val) {
+                        const by = pos.y + y;
+                        const bx = pos.x + x;
+                        if (by >= 0 && by < ROWS) gameState.board[by][bx] = piece.color;
+                    }
+                });
+            });
+            clearLines();
+            spawnPiece();
+            updateUI();
+        }
+
+        /**
+         * 消行逻辑
+         */
+        function clearLines() {
+            let cleared = 0;
+            gameState.board = gameState.board.filter(row => {
+                const full = row.every(cell => cell !== null);
+                if (full) cleared++;
+                return !full;
+            });
+            // 补足顶部空行
+            while (gameState.board.length < ROWS) gameState.board.unshift(Array(COLS).fill(null));
+            if (cleared > 0) {
+                const p = [0, 100, 300, 500, 800]; // 原始得分算法
+                gameState.lines += cleared;
+                gameState.score += p[cleared] * gameState.level;
+                gameState.level = Math.floor(gameState.lines / 10) + 1; // 每消10行升一级
+            }
+        }
+
+        /**
+         * 渲染主循环
+         */
+        function draw(time = 0) {
+            const dt = time - lastTime;
+            lastTime = time;
+
+            if (gameState.status === 'PLAYING') {
+                dropCounter += dt;
+                // 速度随着等级提升而加快
+                const speed = 1000 / (gameState.level * 0.8 + 0.5);
+                if (dropCounter > speed) {
+                    move(0, 1);
+                    dropCounter = 0;
+                }
+            }
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const w = (canvas.width / devicePixelRatio) / COLS;
+            const h = (canvas.height / devicePixelRatio) / ROWS;
+
+            // 1. 绘制已固定的方块
+            gameState.board.forEach((row, y) => {
+                row.forEach((c, x) => { if (c) drawBlock(ctx, x, y, c, w, h); });
+            });
+
+            // 2. 绘制活动方块
+            if (gameState.activePiece && gameState.status !== 'IDLE') {
+                const { piece, pos } = gameState.activePiece;
+                
+                // 绘制投影（Ghost）
+                let gy = pos.y;
+                while (!checkCollision(piece, { x: pos.x, y: gy + 1 })) gy++;
+                piece.shape.forEach((row, y) => {
+                    row.forEach((val, x) => {
+                        if (val) drawBlock(ctx, pos.x + x, gy + y, piece.color, w, h, true);
+                    });
+                });
+
+                // 绘制本体
+                piece.shape.forEach((row, y) => {
+                    row.forEach((val, x) => {
+                        if (val) drawBlock(ctx, pos.x + x, pos.y + y, piece.color, w, h);
+                    });
+                });
+            }
+            requestAnimationFrame(draw);
+        }
+
+        /**
+         * 绘制单个方块单元
+         */
+        function drawBlock(ctx, x, y, color, w, h, isGhost = false) {
+            ctx.save();
+            ctx.translate(x * w, y * h);
+            if (isGhost) {
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 1;
+                ctx.globalAlpha = 0.2;
+                ctx.strokeRect(2, 2, w - 4, h - 4);
+            } else {
+                // 发光 3D 风格
+                ctx.fillStyle = color;
+                ctx.shadowBlur = 12;
+                ctx.shadowColor = color;
+                ctx.beginPath();
+                ctx.roundRect(2, 2, w - 4, h - 4, 3);
+                ctx.fill();
+
+                // 顶部高光
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = 'rgba(255,255,255,0.4)';
+                ctx.fillRect(4, 4, w - 8, 2);
+                // 底部暗影
+                ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                ctx.fillRect(4, h - 6, w - 8, 2);
+            }
+            ctx.restore();
+        }
+
+        /**
+         * 同步 UI 显示
+         */
+        function updateUI() {
+            document.getElementById('stat-score').innerText = gameState.score.toString().padStart(6, '0');
+            document.getElementById('stat-level').innerText = gameState.level.toString().padStart(2, '0');
+            document.getElementById('screen-idle').classList.toggle('hidden', gameState.status !== 'IDLE');
+            document.getElementById('screen-gameover').classList.toggle('hidden', gameState.status !== 'GAMEOVER');
+            document.getElementById('screen-paused').classList.toggle('hidden', gameState.status !== 'PAUSED');
+            document.getElementById('final-score').innerText = gameState.score;
+            document.getElementById('play-icon').innerText = gameState.status === 'PLAYING' ? 'pause' : 'play_arrow';
+        }
+
+        /**
+         * 启动游戏
+         */
+        function start() {
+            gameState.board = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+            gameState.score = 0; gameState.level = 1; gameState.lines = 0;
+            gameState.status = 'PLAYING';
+            spawnPiece();
+            updateUI();
+        }
+
+        /**
+         * 暂停/继续切换
+         */
+        function toggle() {
+            if (gameState.status === 'PLAYING') gameState.status = 'PAUSED';
+            else if (gameState.status === 'PAUSED') gameState.status = 'PLAYING';
+            else if (gameState.status === 'IDLE' || gameState.status === 'GAMEOVER') start();
+            updateUI();
+        }
+
+        /**
+         * 交互绑定辅助函数
+         */
+        const bind = (id, fn) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.ontouchstart = (e) => { e.preventDefault(); fn(); };
+            el.onmousedown = (e) => { fn(); };
+        };
+
+        // 按钮功能绑定
+        bind('btn-engage', start);
+        bind('btn-restart', start);
+        bind('btn-refresh', start);
+        bind('btn-play-toggle', toggle);
+        bind('ctrl-left', () => move(-1, 0));
+        bind('ctrl-right', () => move(1, 0));
+        bind('ctrl-down', () => move(0, 1));
+        bind('ctrl-up', () => {
+            if (!gameState.activePiece) return;
+            const rotated = rotate(gameState.activePiece.piece);
+            if (!checkCollision(rotated, gameState.activePiece.pos)) gameState.activePiece.piece = rotated;
+        });
+        bind('ctrl-drop', () => {
+            if (gameState.status !== 'PLAYING') return;
+            // 循环移动直到碰撞
+            while (move(0, 1));
+        });
+
+        /**
+         * 键盘事件支持
+         */
+        window.onkeydown = (e) => {
+            if (e.key === 'ArrowLeft') move(-1, 0);
+            if (e.key === 'ArrowRight') move(1, 0);
+            if (e.key === 'ArrowDown') move(0, 1);
+            if (e.key === 'ArrowUp' || e.key === 'w') {
+                if (!gameState.activePiece) return;
+                const r = rotate(gameState.activePiece.piece);
+                if (!checkCollision(r, gameState.activePiece.pos)) gameState.activePiece.piece = r;
+            }
+            if (e.key === ' ') {
+              if (gameState.status === 'PLAYING') while (move(0, 1));
+            }
+            if (e.key === 'p' || e.key === 'Escape') toggle();
+        };
+
+        // 启动主循环
+        requestAnimationFrame(draw);
+    </script>
+</body>
+</html>
